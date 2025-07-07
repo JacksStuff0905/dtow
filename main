@@ -1,3 +1,152 @@
 #!/bin/bash
+VERSION="0.1"
+SELF="$(basename "$0")"
+
+
+CONFIG_FILE_PATH=".dotman"
+
+function info() {
+  version
+  echo -e "$SELF is a dotfile managment script inspired by GNU Stow, with added support for symlinking to root directories like /etc or /bin"
+  echo -e "$SELF is a (mostly) drop-in replacement of GNU Stow"
+  echo
+}
+
+function version() {
+  echo -e "$SELF version $VERSION"
+}
+
+function usage() {
+  echo -e "USAGE:\n\n\t$SELF [OPTION ...] [-D|-S|-R] PACKAGE ... [-D|-S|-R] PACKAGE ...\n"
+}
+
+function options() {
+  echo -e "OPTIONS\n"
+  echo -e "\t-d DIR, --dir=DIR\tSet stow dir to DIR (default is current dir)"
+  echo -e "\t-t DIR, --target=DIR\tOverride default target to DIR\n\t\t\t\t(configured in the $CONFIG_FILE_PATH file\n\t\t\t\tdefault is \$HOME)"
+  echo
+  echo -e "\t-S, --stow\t\tStow the package names that follow this option"
+  echo -e "\t-D, --delete\t\tUnstow the package names that follow this option"
+  echo -e "\t-R, --restow\t\tRestow (like $SELF -D followed by $0 -S)"
+  echo
+  echo -e "\t--ignore=REGEX\t\tIgnore files ending in this Perl regex"
+  echo -e "\t--defer=REGEX\t\tDon't stow files beginning with this Perl regex\n\t\t\t\tif the file is already stowed to another package"
+  echo -e "\t--override=REGEX\tForce stowing files beginning with this Perl regex\n\t\t\t\tif the file is already stowed to another package"
+  echo -e "\t--adopt\t\t\t(Use with care!) Import existing files into stow\n\t\t\t\tfrom target. Please read docs before using."
+  echo -e "\t--dotfiles\t\tEnables special handling for dotfiles that are\n\t\t\t\tStow packages that start with \"dot-\" and not \".\""
+  echo -e "\t-p, --compat\t\tUse legacy algorithm for unstowing"
+  echo -e "\t-n, --no, --simulate\tDo not actually make any filesystem changes"
+  echo -e "\t-v, --verbose[=N]\tIncrease verbosity (levels are from 0 to 5;\n\t\t\t\t -v or --verbose adds 1; --verbose=N sets level)"
+  echo
+  echo -e "\t-V, --version\t\tShow $SELF version number"
+  echo -e "\t-h, --help\t\tShow this help"
+}
+
+function help() {
+  info
+  usage
+  options
+}
+
+function stow() {
+  local PACKAGE="$1"
+  local DIR="$2"
+  local TARGET="$3"
+  local IGNORE="$4"
+  local DEFER="$5"
+  local OVERRIDE="$6"
+  local ADOPT="$7"
+  local DOTFILES="$8"
+  local COMPAT="$9"
+  local SIMULATE="${10}"
+  local VERBOSE="${11}"
+
+  echo "$PACKAGE, $DIR, $TARGET, $IGNORE, $DEFER, $OVERRIDE, $ADOPT, $DOTFILES, $COMPAT, $SIMULATE, $VERBOSE"
+
+}
+
+
+
+
+# Main logic
+DIR="./"
+TARGET="../"
+IGNORE=""
+DEFER=""
+OVERRIDE=""
+ADOPT=0
+DOTFILES=0
+COMPAT=0
+SIMULATE=0
+VERBOSE=0
+
+while [[ "$1" == -* ]]; do
+  case "$1" in
+  -d|--dir)
+    shift
+    DIR="$1"
+    ;;
+  -t|--target)
+    shift
+    TARGET="$1"
+    ;;
+  -S|--stow)
+    shift
+    stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    ;;
+  -D|--delete)
+    shift
+    delete "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    ;;
+  -R|--restow)
+    shift
+    restow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    ;;
+  --ignore)
+    shift
+    IGNORE="$1"
+    ;;
+  --defer)
+    shift
+    DEFER="$1"
+    ;;
+  --override)
+    shift
+    OVERRIDE="$1"
+    ;;
+  --adopt)
+    ADOPT=1
+    ;;
+  --dotfiles)
+    DOTFILES=1
+    ;;
+  -p|--compat)
+    COMPAT=1
+    ;;
+  -n|--no|--simulate)
+    SIMULATE=1
+    ;;
+  -v*)
+    (( VERBOSE += ${#1} - 2 ))
+    ;;
+  --verbose)
+    shift
+    VERBOSE="$1"
+    ;;
+  -h|--help)
+    help
+    exit 0
+    ;;
+  -V|--version)
+    version
+    ;;
+  --)
+    shift
+    break
+    ;;
+  esac
+  shift
+done
+
 
 
