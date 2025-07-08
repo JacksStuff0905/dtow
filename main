@@ -48,6 +48,36 @@ function help() {
   options
 }
 
+declare -A config
+default_dir=""
+
+function parse_config() {
+  while IFS= read -r line
+  do
+    # Trim leading/trailing whitespace using Bash parameter expansion
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    # Skip empty lines and comments
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    # Split on first '=' only
+    IFS='=' read -r key value <<< "$line"
+
+    # Trim spaces around key and value
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    if [[ "$key" == "." ]]; then
+      default_dir="$value"
+    else
+      config["$key"]="$value"
+    fi
+  done < "$1/$CONFIG_FILE_PATH"
+}
+
 function stow() {
   local PACKAGE="$1"
   local DIR="$2"
@@ -63,6 +93,11 @@ function stow() {
 
   echo "$PACKAGE, $DIR, $TARGET, $IGNORE, $DEFER, $OVERRIDE, $ADOPT, $DOTFILES, $COMPAT, $SIMULATE, $VERBOSE"
 
+  echo $(parse_config $DIR)
+
+  if [ -d "$DIR/$PACKAGE" ]; then
+    echo "$DIR/$PACKAGE"
+  fi
 }
 
 
@@ -148,5 +183,9 @@ while [[ "$1" == -* ]]; do
   shift
 done
 
+if [ ! -z "$1" ]; then
+  echo "Package specified $1"
+  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+fi
 
 
