@@ -70,14 +70,86 @@ function parse_config() {
     value="${value%"${value##*[![:space:]]}"}"
 
     if [[ "$key" == "." ]]; then
-      default_value="$value"
+      if [[ -z "$TARGET" ]]; then
+        default_value="$value"
+      else
+        default_value="$TARGET"
+      fi
     elif [[ "$2" == "$key" ]]; then
-      echo "$value"
+      echo "$(echo $value | envsubst)"
       return 0
     fi
   done < "$1/$CONFIG_FILE_PATH"
 
-  echo "$default_value"
+  echo "$(echo "$default_value" | envsubst)/$2"
+}
+
+function unsymlink_directory() {
+  local SOURCE="$1"
+  local TARGET="$2"
+  local IGNORE="$3"
+  local DEFER="$4"
+  local OVERRIDE="$5"
+  local ADOPT="$6"
+  local DOTFILES="$7"
+  local COMPAT="$8"
+  local SIMULATE="$9"
+  local VERBOSE="${10}"
+
+  if [ -d "$TARGET" ]; then
+    echo "targ is dir $TARGET"
+    for directory in $(ls -a $TARGET)
+    do
+      if [[ "$directory" == "." || "$directory" == ".." ]]; then
+        continue
+      fi
+
+      unsymlink_directory "$SOURCE" "$TARGET/$directory" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    done
+  else
+    if [ ! -L "$TARGET" ]; then
+      echo "targ is not link $TARGET"
+      return 0
+    fi
+
+    if [[ "$(readlink -f "$(readlink "$TARGET")")" == "$(readlink -f "$SOURCE")"* ]]; then
+
+      if [[ "$SIMULATE" == "1" ]]; then
+        if [ "$VERBOSE" -ge 1 ]; then
+          echo "UNLINK: $TARGET"
+        fi
+        return 0
+      fi
+
+
+      result=$(rm "$TARGET" 2>&1)
+      status=$?
+      echo "status $status"
+      return 0
+
+      if [[ $status -eq 1 ]]; then
+        if [[ "$result" == "*Permission denied*" ]]; then
+          echo "Permission denied: Command found but not executable"
+          sudo -E ln -s "$SOURCE" "$TARGET"
+          if [[ $? -eq 0 ]]; then
+            if [ "$VERBOSE" -ge 1 ]; then
+              echo "LINK: $SOURCE => $TARGET"
+            fi
+          fi
+        fi
+      #elif [[ $status -eq 127 ]]; then
+        #echo "Command not found"
+      #elif [[ $status -ne 0 ]]; then
+        #echo "Command failed with exit code $status"
+      #else
+        #echo "Command succeeded"
+      else
+        if [ "$VERBOSE" -ge 1 ]; then
+          echo "LINK: $SOURCE => $TARGET"
+        fi
+      fi
+    fi
+  fi
 }
 
 function symlink_directory() {
@@ -130,11 +202,46 @@ function symlink_directory() {
     #else
       #echo "Command succeeded"
     else
-      echo "is 0 $VERBOSE"
       if [ "$VERBOSE" -ge 1 ]; then
         echo "LINK: $SOURCE => $TARGET"
       fi
     fi
+  fi
+}
+
+function unstow() {
+  local PACKAGE="$1"
+  local DIR="$2"
+  local TARGET="$3"
+  local IGNORE="$4"
+  local DEFER="$5"
+  local OVERRIDE="$6"
+  local ADOPT="$7"
+  local DOTFILES="$8"
+  local COMPAT="$9"
+  local SIMULATE="${10}"
+  local VERBOSE="${11}"
+
+  if [ -d "$DIR/$PACKAGE" ]; then
+    for directory in $(ls -a $DIR/$PACKAGE/)
+    do
+      if [[ "$directory" == "." || "$directory" == ".." ]]; then
+        continue
+      fi
+
+      directory="$DIR/$PACKAGE/$directory"
+      targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
+
+      echo "unstow source: $directory targ: $targ"
+      unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+
+
+      #ln -s "$directory" "$targ"
+      
+    done
+  else
+    echo "dotman: ERROR: The stow directory $DIR does not contain package $PACKAGE"
+    return 1
   fi
 }
 
@@ -151,14 +258,23 @@ function stow() {
   local SIMULATE="${10}"
   local VERBOSE="${11}"
 
-  echo "$PACKAGE, $DIR, $TARGET, $IGNORE, $DEFER, $OVERRIDE, $ADOPT, $DOTFILES, $COMPAT, $SIMULATE, $VERBOSE"
-
+  if [ "$VERBOSE" -ge 2 ]; then
+    echo "stow dir is $DIR"
+    echo "Planning stow of: $PACKAGE ..."
+  fi
 
   if [ -d "$DIR/$PACKAGE" ]; then
-    for directory in $DIR/$PACKAGE/*/ $DIR/$PACKAGE/.[^.]*
+    for directory in $(ls -a $DIR/$PACKAGE/)
     do
-      targ="$(parse_config $DIR $(basename "$directory") | envsubst)"
+      if [[ "$directory" == "." || "$directory" == ".." ]]; then
+        continue
+      fi
 
+      directory="$DIR/$PACKAGE/$directory"
+      #mkdir -p "$(realpath "$TARGET")/$(basename "$directory")"
+      targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
+
+      mkdir -p "$targ" &>/dev/null
       symlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
 
 
@@ -176,7 +292,7 @@ function stow() {
 
 # Main logic
 DIR="./"
-TARGET="../"
+TARGET=""
 IGNORE=""
 DEFER=""
 OVERRIDE=""
@@ -208,7 +324,7 @@ while [[ "$1" == -* ]]; do
     ;;
   -D|--delete)
     shift
-    delete "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
     ;;
   -R|--restow)
     shift
@@ -236,7 +352,7 @@ while [[ "$1" == -* ]]; do
     SIMULATE=1
     ;;
   -v*)
-    (( VERBOSE += ${#1} - 2 ))
+    (( VERBOSE += ${#1} - 1 ))
     ;;
   --verbose=*)
     VERBOSE="${1#*=}"
@@ -257,7 +373,6 @@ while [[ "$1" == -* ]]; do
 done
 
 if [ ! -z "$1" ]; then
-  echo "Package specified $1"
   stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
 fi
 
