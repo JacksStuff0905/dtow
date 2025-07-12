@@ -4,7 +4,7 @@ ROOT="$(dirname "$0")"
 SELF="$(basename "$0")"
 
 
-CONFIG_FILE_PATH=".dotman"
+CONFIG_FILE_PATH=".dtow"
 
 function info() {
   version
@@ -96,6 +96,33 @@ function unsymlink_directory() {
   local SIMULATE="$9"
   local VERBOSE="${10}"
 
+  if [[ ! -d "$TARGET" ]]; then
+    return 1
+  fi
+
+  find "$SOURCE" -type f -o -type l | while read -r source_path; do
+    # Get relative path from the stow package dir
+    rel_path="${source_path#$SOURCE/}"
+    # Compute the corresponding target path
+    target_path="$TARGET/$rel_path"
+
+    echo "rel: $rel_path targ: $target_path"
+
+    # If it's a symlink and it points to this package, remove it
+    if [[ -L "$target_path" ]]; then
+      resolved_target=$(readlink -f "$target_path")
+      resolved_source=$(readlink -f "$source_path" 2>/dev/null)
+
+      # Symlink still points to the expected source in package?
+      if [[ "$resolved_target" == "$resolved_source" ]]; then
+          echo "UNLINK: $target_path"
+          rm "$target_path"
+      fi
+    fi
+  done
+
+  return 0
+
   if [ -d "$TARGET" ]; then
     echo "targ is dir $TARGET"
     for directory in $(ls -a $TARGET)
@@ -125,15 +152,14 @@ function unsymlink_directory() {
       result=$(rm "$TARGET" 2>&1)
       status=$?
       echo "status $status"
-      return 0
 
       if [[ $status -eq 1 ]]; then
         if [[ "$result" == "*Permission denied*" ]]; then
           echo "Permission denied: Command found but not executable"
-          sudo -E ln -s "$SOURCE" "$TARGET"
+          sudo -E rm "$TARGET"
           if [[ $? -eq 0 ]]; then
             if [ "$VERBOSE" -ge 1 ]; then
-              echo "LINK: $SOURCE => $TARGET"
+              echo "UNLINK: $TARGET"
             fi
           fi
         fi
@@ -145,9 +171,31 @@ function unsymlink_directory() {
         #echo "Command succeeded"
       else
         if [ "$VERBOSE" -ge 1 ]; then
-          echo "LINK: $SOURCE => $TARGET"
+          echo "UNLINK: $TARGET"
         fi
       fi
+    fi
+  fi
+}
+
+function try_sudo() {
+  result="$($1 2>&1)"
+  status=$?
+
+  if [[ $status -eq 1 ]]; then
+    echo "Sudo $result"
+    if [[ "$result" == *"Permission denied"* ]]; then
+      echo "aaa"
+      sudo -E $1
+      if [[ $? -eq 0 ]]; then
+        if [ "$VERBOSE" -ge 1 ]; then
+          echo "$2"
+        fi
+      fi
+    fi
+  else
+    if [ "$VERBOSE" -ge 1 ]; then
+      echo "$2"
     fi
   fi
 }
@@ -163,6 +211,25 @@ function symlink_directory() {
   local COMPAT="$8"
   local SIMULATE="$9"
   local VERBOSE="${10}"
+
+  if [[ ! -d "$TARGET" ]]; then
+    return 1
+  fi
+
+  find "$SOURCE" -type f -o -type l | while read -r source_path; do
+    # Get relative path from the stow package dir
+    rel_path="${source_path#$SOURCE/}"
+    # Compute the corresponding target path
+    target_path="$TARGET/$rel_path"
+
+    echo "rel: $rel_path targ: $target_path"
+
+    try_sudo "mkdir -p "$(dirname "$target_path")"" ""
+    
+    try_sudo "ln -s "$source_path" "$target_path"" "LINK: $source_path => $target_path"
+  done
+
+  return 0
 
   if [ -d "$TARGET" ]; then
     for directory in $(ls -a $SOURCE)
@@ -240,7 +307,7 @@ function unstow() {
       
     done
   else
-    echo "dotman: ERROR: The stow directory $DIR does not contain package $PACKAGE"
+    echo "$SELF: ERROR: The stow directory $DIR does not contain package $PACKAGE"
     return 1
   fi
 }
@@ -282,7 +349,7 @@ function stow() {
       
     done
   else
-    echo "dotman: ERROR: The stow directory $DIR does not contain package $PACKAGE"
+    echo "$SELF: ERROR: The stow directory $DIR does not contain package $PACKAGE"
     return 1
   fi
 }
