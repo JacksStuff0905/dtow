@@ -5,6 +5,11 @@ SELF="$(basename "$0")"
 
 
 CONFIG_FILE_PATH=".dtow"
+IGNORE_FILE_PATH=".dtowignore"
+
+DEFAULT_CONFIG="root=/
+home=$HOME/
+.=$HOME/"
 
 function info() {
   version
@@ -51,6 +56,14 @@ function help() {
 
 function parse_config() {
   default_value=""
+
+  config=""
+  if [ -f "$1/$CONFIG_FILE_PATH" ]; then
+    config="$(cat "$1/$CONFIG_FILE_PATH")"
+  else
+    config="$DEFAULT_CONFIG"
+  fi
+
   while IFS= read -r line
   do
     # Trim leading/trailing whitespace using Bash parameter expansion
@@ -79,10 +92,11 @@ function parse_config() {
       echo "$(echo $value | envsubst)"
       return 0
     fi
-  done < "$1/$CONFIG_FILE_PATH"
+  done <<< "$config"
 
   echo "$(echo "$default_value" | envsubst)/$2"
 }
+parse_config "example/" "home"
 
 function unsymlink_directory() {
   local SOURCE="$1"
