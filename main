@@ -97,101 +97,8 @@ function parse_config() {
   echo "$(echo "$default_value" | envsubst)/$2"
 }
 
-function unsymlink_directory() {
-  local SOURCE="$1"
-  local TARGET="$2"
-  local IGNORE="$3"
-  local DEFER="$4"
-  local OVERRIDE="$5"
-  local ADOPT="$6"
-  local DOTFILES="$7"
-  local COMPAT="$8"
-  local SIMULATE="$9"
-  local VERBOSE="${10}"
-
-  if [[ ! -d "$TARGET" ]]; then
-    return 1
-  fi
-
-  find "$SOURCE" -type f -o -type l | while read -r source_path; do
-    # Get relative path from the stow package dir
-    rel_path="${source_path#$SOURCE/}"
-    # Compute the corresponding target path
-    target_path="$TARGET/$rel_path"
-
-    echo "rel: $rel_path targ: $target_path"
-
-    # If it's a symlink and it points to this package, remove it
-    if [[ -L "$target_path" ]]; then
-      resolved_target=$(readlink -f "$target_path")
-      resolved_source=$(readlink -f "$source_path" 2>/dev/null)
-
-      # Symlink still points to the expected source in package?
-      if [[ "$resolved_target" == "$resolved_source" ]]; then
-          echo "UNLINK: $target_path"
-          rm "$target_path"
-      fi
-    fi
-  done
-
-  return 0
-
-  if [ -d "$TARGET" ]; then
-    echo "targ is dir $TARGET"
-    for directory in $(ls -a $TARGET)
-    do
-      if [[ "$directory" == "." || "$directory" == ".." ]]; then
-        continue
-      fi
-
-      unsymlink_directory "$SOURCE" "$TARGET/$directory" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
-    done
-  else
-    if [ ! -L "$TARGET" ]; then
-      echo "targ is not link $TARGET"
-      return 0
-    fi
-
-    if [[ "$(readlink -f "$(readlink "$TARGET")")" == "$(readlink -f "$SOURCE")"* ]]; then
-
-      if [[ "$SIMULATE" == "1" ]]; then
-        if [ "$VERBOSE" -ge 1 ]; then
-          echo "UNLINK: $TARGET"
-        fi
-        return 0
-      fi
-
-
-      result=$(rm "$TARGET" 2>&1)
-      status=$?
-      echo "status $status"
-
-      if [[ $status -eq 1 ]]; then
-        if [[ "$result" == "*Permission denied*" ]]; then
-          echo "Permission denied: Command found but not executable"
-          sudo -E rm "$TARGET"
-          if [[ $? -eq 0 ]]; then
-            if [ "$VERBOSE" -ge 1 ]; then
-              echo "UNLINK: $TARGET"
-            fi
-          fi
-        fi
-      #elif [[ $status -eq 127 ]]; then
-        #echo "Command not found"
-      #elif [[ $status -ne 0 ]]; then
-        #echo "Command failed with exit code $status"
-      #else
-        #echo "Command succeeded"
-      else
-        if [ "$VERBOSE" -ge 1 ]; then
-          echo "UNLINK: $TARGET"
-        fi
-      fi
-    fi
-  fi
-}
-
 function try_sudo() {
+  local VERBOSE="$3"
   result="$($1 2>&1)"
   status=$?
 
@@ -215,7 +122,7 @@ function try_sudo() {
   fi
 }
 
-function symlink_directory() {
+function unsymlink_directory() {
   local SOURCE="$1"
   local TARGET="$2"
   local IGNORE="$3"
@@ -237,56 +144,73 @@ function symlink_directory() {
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
 
-    try_sudo "mkdir -p "$(dirname "$target_path")"" ""
-    
-    try_sudo "ln -s "$source_path" "$target_path"" "LINK: $source_path => $target_path"
-  done
+    # If it's a symlink and it points to this package, remove it
+    if [[ -L "$target_path" ]]; then
+      resolved_target=$(readlink -f "$(readlink "$target_path")")
+      resolved_source=$(readlink -f "$source_path" 2>/dev/null)
 
-  return 0
-
-  if [ -d "$TARGET" ]; then
-    for directory in $(ls -a $SOURCE)
-    do
-      if [[ "$directory" == "." || "$directory" == ".." ]]; then
-        continue
-      fi
-
-      symlink_directory "$SOURCE/$directory" "$TARGET/$directory" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
-    done
-  else
-    if [[ "$SIMULATE" == "1" ]]; then
-      if [ "$VERBOSE" -ge 1 ]; then
-        echo "LINK: $SOURCE => $TARGET"
-      fi
-      return 0
-    fi
-
-
-    result=$(ln -s "$SOURCE" "$TARGET" 2>&1)
-    status=$?
-
-    if [[ $status -eq 1 ]]; then
-      if [[ "$result" == "*Permission denied*" ]]; then
-        echo "Permission denied: Command found but not executable"
-        sudo -E ln -s "$SOURCE" "$TARGET"
-        if [[ $? -eq 0 ]]; then
-          if [ "$VERBOSE" -ge 1 ]; then
-            echo "LINK: $SOURCE => $TARGET"
-          fi
+      # Symlink still points to the expected source in package?
+      if [[ "$resolved_target" == "$resolved_source" ]]; then
+        if [ "$SIMULATE" == "0" ]; then
+          try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE"
         fi
       fi
-    #elif [[ $status -eq 127 ]]; then
-      #echo "Command not found"
-    #elif [[ $status -ne 0 ]]; then
-      #echo "Command failed with exit code $status"
-    #else
-      #echo "Command succeeded"
-    else
-      if [ "$VERBOSE" -ge 1 ]; then
-        echo "LINK: $SOURCE => $TARGET"
+    fi
+  done
+
+  # Only remove if empty and part of this package
+  find "$SOURCE" -type d | sort -r | while read -r src_dir; do
+    rel_dir="${src_dir#$SOURCE/}"
+    target_subdir="$TARGET/$rel_dir"
+    if [[ -d "$target_subdir" ]] && [[ -z "$(ls -A "$target_subdir")" ]]; then
+      if [ "$VERBOSE" -ge 2 ]; then
+        echo "Removing empty directory: $target_subdir"
+      fi
+      
+      if [ "$SIMULATE" == "0" ]; then
+        try_sudo "rmdir "$target_subdir"" "" "$VERBOSE"
       fi
     fi
+  done
+}
+
+
+function symlink_directory() {
+  local SOURCE="$1"
+  local TARGET="$2"
+  local IGNORE="$3"
+  local DEFER="$4"
+  local OVERRIDE="$5"
+  local ADOPT="$6"
+  local DOTFILES="$7"
+  local COMPAT="$8"
+  local SIMULATE="$9"
+  local VERBOSE="${10}"
+
+  if [[ ! -d "$TARGET" ]]; then
+    return 1
   fi
+
+  find "$SOURCE" -type f -o -type l | while read -r source_path; do
+    # Get relative path from the stow package dir
+    rel_path="${source_path#$SOURCE/}"
+    # Compute the corresponding target path
+    target_path="$TARGET/$rel_path"
+    
+    if [ "$VERBOSE" -ge 2 ]; then
+      echo "Creating intermediate directories: $(dirname "$target_path")"
+    fi
+
+    if [ "$VERBOSE" -ge 1 ]; then
+      echo "LINK: $source_path => $target_path"
+    fi
+
+    if [ "$SIMULATE" == "0" ]; then
+      try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
+    
+      try_sudo "ln -s "$source_path" "$target_path"" "" "$VERBOSE"
+    fi
+  done
 }
 
 function unstow() {
@@ -312,7 +236,6 @@ function unstow() {
       directory="$DIR/$PACKAGE/$directory"
       targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
 
-      echo "unstow source: $directory targ: $targ"
       unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
 
 
