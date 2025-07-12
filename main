@@ -96,7 +96,6 @@ function parse_config() {
 
   echo "$(echo "$default_value" | envsubst)/$2"
 }
-parse_config "example/" "home"
 
 function unsymlink_directory() {
   local SOURCE="$1"
@@ -197,19 +196,21 @@ function try_sudo() {
   status=$?
 
   if [[ $status -eq 1 ]]; then
-    echo "Sudo $result"
     if [[ "$result" == *"Permission denied"* ]]; then
-      echo "aaa"
       sudo -E $1
       if [[ $? -eq 0 ]]; then
         if [ "$VERBOSE" -ge 1 ]; then
-          echo "$2"
+          if [[ -n "$2" ]]; then
+            echo "$2"
+          fi
         fi
       fi
     fi
   else
     if [ "$VERBOSE" -ge 1 ]; then
-      echo "$2"
+      if [[ -n "$2" ]]; then
+        echo "$2"
+      fi
     fi
   fi
 }
@@ -235,8 +236,6 @@ function symlink_directory() {
     rel_path="${source_path#$SOURCE/}"
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
-
-    echo "rel: $rel_path targ: $target_path"
 
     try_sudo "mkdir -p "$(dirname "$target_path")"" ""
     
