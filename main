@@ -225,6 +225,10 @@ function unstow() {
   local COMPAT="$9"
   local SIMULATE="${10}"
   local VERBOSE="${11}"
+  if [ "$VERBOSE" -ge 2 ]; then
+    echo "stow dir is $DIR"
+    echo "Planning unstow of: $PACKAGE ..."
+  fi
 
   if [ -d "$DIR/$PACKAGE" ]; then
     for directory in $(ls -a $DIR/$PACKAGE/)
