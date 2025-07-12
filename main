@@ -54,6 +54,36 @@ function help() {
   options
 }
 
+IGNORE_REGEX=""
+
+function parse_ignore() {
+  if [[ -z "$IGNORE_REGEX" ]]; then
+    ignore_patterns=()
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Skip comments and empty lines
+      [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+
+      # Convert glob pattern to regex
+      pattern=$(echo "$line" | sed 's/\./\\./g; s/\*/.*/g; s/\//\\\//g')
+      ignore_patterns+=("$pattern")
+    done < "$IGNORE_FILE"
+
+    # Build a grep -Ev pattern
+    if [ ${#ignore_patterns[@]} -gt 0 ]; then
+      IGNORE_REGEX=$(printf "|%s" "${ignore_patterns[@]}")
+      IGNORE_REGEX="${IGNORE_REGEX:1}"  # Remove leading |
+    else
+      IGNORE_REGEX="^$"  # Match nothing if no patterns
+    fi
+  fi
+
+  if [[ "$1" =~ "$IGNORE_REGEX" ]]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
 function parse_config() {
   default_value=""
 
@@ -294,6 +324,23 @@ function stow() {
   fi
 }
 
+function restow {
+  local DIR="$2"
+  local TARGET="$3"
+  local IGNORE="$4"
+  local DEFER="$5"
+  local OVERRIDE="$6"
+  local ADOPT="$7"
+  local DOTFILES="$8"
+  local COMPAT="$9"
+  local SIMULATE="${10}"
+  local VERBOSE="${11}"
+
+
+  unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+
+  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+}
 
 
 
