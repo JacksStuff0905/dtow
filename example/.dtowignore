@@ -3,3 +3,7 @@
 some-ignored-file
 
 some-ignored-folder/
+
+some-package/another-ignored-file
+
+some-package/another-ignored-folder/

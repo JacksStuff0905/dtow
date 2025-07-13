@@ -11,22 +11,22 @@ DEFAULT_CONFIG="root=/
 home=$HOME/
 .=$HOME/"
 
-function info() {
+info() {
   version
   echo -e "$SELF is a dotfile managment script inspired by GNU Stow, with added support for symlinking to root directories like /etc or /bin"
   echo -e "$SELF is a (mostly) drop-in replacement of GNU Stow"
   echo
 }
 
-function version() {
+version() {
   echo -e "$SELF version $VERSION"
 }
 
-function usage() {
+usage() {
   echo -e "USAGE:\n\n\t$SELF [OPTION ...] [-D|-S|-R] PACKAGE ... [-D|-S|-R] PACKAGE ...\n"
 }
 
-function options() {
+options() {
   echo -e "OPTIONS\n"
   echo -e "\t-d DIR, --dir=DIR\tSet stow dir to DIR (default is current dir)"
   echo -e "\t-t DIR, --target=DIR\tOverride default target to DIR\n\t\t\t\t(configured in the $CONFIG_FILE_PATH file\n\t\t\t\tdefault is \$HOME)"
@@ -48,43 +48,48 @@ function options() {
   echo -e "\t-h, --help\t\tShow this help"
 }
 
-function help() {
+help() {
   info
   usage
   options
 }
 
-IGNORE_REGEX=""
+compile_ignore_regex() {
+  local ignore_file="$1"
+  local regex_var="$2"
+  local patterns=()
 
-function parse_ignore() {
-  if [[ -z "$IGNORE_REGEX" ]]; then
-    ignore_patterns=()
-    while IFS= read -r line || [ -n "$line" ]; do
-      # Skip comments and empty lines
-      [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+  if [[ -f "$ignore_file" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" || "$line" =~ ^# ]] && continue
 
-      # Convert glob pattern to regex
-      pattern=$(echo "$line" | sed 's/\./\\./g; s/\*/.*/g; s/\//\\\//g')
-      ignore_patterns+=("$pattern")
-    done < "$IGNORE_FILE"
+      # If the pattern looks like a directory, make it match subpaths too
+      if [[ "$line" =~ /$ ]]; then
+        # e.g., "foo/bar/" → "^foo/bar(/|$)"
+        line="^${line%/}(/|$)"
+      fi
 
-    # Build a grep -Ev pattern
-    if [ ${#ignore_patterns[@]} -gt 0 ]; then
-      IGNORE_REGEX=$(printf "|%s" "${ignore_patterns[@]}")
-      IGNORE_REGEX="${IGNORE_REGEX:1}"  # Remove leading |
-    else
-      IGNORE_REGEX="^$"  # Match nothing if no patterns
-    fi
+      patterns+=("$line")
+    done < "$ignore_file"
   fi
 
-  if [[ "$1" =~ "$IGNORE_REGEX" ]]; then
-    return 1
-  else
-    return 0
-  fi
+  local regex="$(IFS='|'; echo "${patterns[*]}")"
+  eval "$regex_var=\"\$regex\""
 }
 
-function parse_config() {
+should_ignore() {
+    local rel_path="$1"
+    local compiled_regex="$2"
+
+    if [[ -n "$compiled_regex" ]] && echo "$rel_path" | grep -qE "$compiled_regex"; then
+        return 0  # ignore
+    fi
+    return 1
+}
+
+
+
+parse_config() {
   default_value=""
 
   config=""
@@ -127,7 +132,7 @@ function parse_config() {
   echo "$(echo "$default_value" | envsubst)/$2"
 }
 
-function try_sudo() {
+try_sudo() {
   local VERBOSE="$3"
   result="$($1 2>&1)"
   status=$?
@@ -152,7 +157,7 @@ function try_sudo() {
   fi
 }
 
-function unsymlink_directory() {
+unsymlink_directory() {
   local SOURCE="$1"
   local TARGET="$2"
   local IGNORE="$3"
@@ -173,6 +178,13 @@ function unsymlink_directory() {
     rel_path="${source_path#$SOURCE/}"
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
+
+    if should_ignore "${source_path#*/}" "$IGNORES"; then
+      if [ "$VERBOSE" -ge 2 ]; then
+        echo "Ignoring $source_path"
+      fi
+      continue
+    fi
 
     # If it's a symlink and it points to this package, remove it
     if [[ -L "$target_path" ]]; then
@@ -205,7 +217,7 @@ function unsymlink_directory() {
 }
 
 
-function symlink_directory() {
+symlink_directory() {
   local SOURCE="$1"
   local TARGET="$2"
   local IGNORE="$3"
@@ -217,16 +229,20 @@ function symlink_directory() {
   local SIMULATE="$9"
   local VERBOSE="${10}"
 
-  if [[ ! -d "$TARGET" ]]; then
-    return 1
-  fi
-
   find "$SOURCE" -type f -o -type l | while read -r source_path; do
     # Get relative path from the stow package dir
     rel_path="${source_path#$SOURCE/}"
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
-    
+
+
+    if should_ignore "${source_path#*/}" "$IGNORES"; then
+      if [ "$VERBOSE" -ge 2 ]; then
+        echo "Ignoring $source_path"
+      fi
+      continue
+    fi
+
     if [ "$VERBOSE" -ge 2 ]; then
       echo "Creating intermediate directories: $(dirname "$target_path")"
     fi
@@ -243,7 +259,12 @@ function symlink_directory() {
   done
 }
 
-function unstow() {
+IGNORES=""
+load_ignore() {
+  compile_ignore_regex "$1/$IGNORE_FILE_PATH" IGNORES
+}
+
+unstow() {
   local PACKAGE="$1"
   local DIR="$2"
   local TARGET="$3"
@@ -255,9 +276,17 @@ function unstow() {
   local COMPAT="$9"
   local SIMULATE="${10}"
   local VERBOSE="${11}"
+
+  load_ignore "$DIR"
+
   if [ "$VERBOSE" -ge 2 ]; then
     echo "stow dir is $DIR"
     echo "Planning unstow of: $PACKAGE ..."
+  fi
+
+  if should_ignore "$DIR/$PACKAGE/" "$IGNORES"; then
+    echo "Ignoring $DIR/$PACKAGE"
+    return 0
   fi
 
   if [ -d "$DIR/$PACKAGE" ]; then
@@ -282,7 +311,7 @@ function unstow() {
   fi
 }
 
-function stow() {
+stow() {
   local PACKAGE="$1"
   local DIR="$2"
   local TARGET="$3"
@@ -295,28 +324,32 @@ function stow() {
   local SIMULATE="${10}"
   local VERBOSE="${11}"
 
+  load_ignore "$DIR"
+
   if [ "$VERBOSE" -ge 2 ]; then
     echo "stow dir is $DIR"
     echo "Planning stow of: $PACKAGE ..."
   fi
 
-  if [ -d "$DIR/$PACKAGE" ]; then
+  if should_ignore "$DIR/$PACKAGE/" "$IGNORES"; then
+    echo "Ignoring $DIR/$PACKAGE"
+    return 0
+  fi
+
+
+  if [[ -d "$DIR/$PACKAGE" || -f "$DIR/$PACKAGE" ]]; then
     for directory in $(ls -a $DIR/$PACKAGE/)
     do
       if [[ "$directory" == "." || "$directory" == ".." ]]; then
         continue
       fi
 
+      
+
       directory="$DIR/$PACKAGE/$directory"
-      #mkdir -p "$(realpath "$TARGET")/$(basename "$directory")"
       targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
 
-      mkdir -p "$targ" &>/dev/null
       symlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
-
-
-      #ln -s "$directory" "$targ"
-      
     done
   else
     echo "$SELF: ERROR: The stow directory $DIR does not contain package $PACKAGE"
@@ -324,7 +357,7 @@ function stow() {
   fi
 }
 
-function restow {
+restow() {
   local DIR="$2"
   local TARGET="$3"
   local IGNORE="$4"
