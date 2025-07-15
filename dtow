@@ -35,12 +35,11 @@ options() {
   echo -e "\t-D, --delete\t\tUnstow the package names that follow this option"
   echo -e "\t-R, --restow\t\tRestow (like $SELF -D followed by $0 -S)"
   echo
-  echo -e "\t--ignore=REGEX\t\tIgnore files ending in this Perl regex"
-  echo -e "\t--defer=REGEX\t\tDon't stow files beginning with this Perl regex\n\t\t\t\tif the file is already stowed to another package"
-  echo -e "\t--override=REGEX\tForce stowing files beginning with this Perl regex\n\t\t\t\tif the file is already stowed to another package"
+  echo -e "\t--ignore=REGEX\t\tIgnore files ending in this regex"
+  echo -e "\t--defer=REGEX\t\tDon't stow files beginning with this regex\n\t\t\t\tif the file is already stowed to another package"
+  echo -e "\t--override=REGEX\tForce stowing files beginning with this regex\n\t\t\t\tif the file is already stowed to another package"
   echo -e "\t--adopt\t\t\t(Use with care!) Import existing files into stow\n\t\t\t\tfrom target. Please read docs before using."
   echo -e "\t--dotfiles\t\tEnables special handling for dotfiles that are\n\t\t\t\tStow packages that start with \"dot-\" and not \".\""
-  echo -e "\t-p, --compat\t\tUse legacy algorithm for unstowing"
   echo -e "\t-n, --no, --simulate\tDo not actually make any filesystem changes"
   echo -e "\t-v, --verbose[=N]\tIncrease verbosity (levels are from 0 to 5;\n\t\t\t\t -v or --verbose adds 1; --verbose=N sets level)"
   echo
@@ -61,7 +60,7 @@ compile_ignore_regex() {
 
   if [[ -f "$ignore_file" ]]; then
     while IFS= read -r line; do
-      [[ -z "$line" || "$line" =~ ^# ]] && continue
+      [[ -z "$line" ]] && continue
 
       # If the pattern looks like a directory, make it match subpaths too
       if [[ "$line" =~ /$ ]]; then
@@ -70,7 +69,7 @@ compile_ignore_regex() {
       fi
 
       patterns+=("$line")
-    done < "$ignore_file"
+    done <<< "$(sed '/^[[:blank:]]*#/d;s/#.*//' "$ignore_file")"
   fi
 
   local regex="$(IFS='|'; echo "${patterns[*]}")"
@@ -81,7 +80,7 @@ should_ignore() {
     local rel_path="$1"
     local compiled_regex="$2"
 
-    if [[ -n "$compiled_regex" ]] && echo "$rel_path" | grep -qE "$compiled_regex"; then
+    if ( [[ -n "$compiled_regex" ]] && echo "$rel_path" | grep -qE "$compiled_regex" ) || ( [[ -n "$3" ]] && echo "$rel_path" | grep -qE ".*$3$" ); then
         return 0  # ignore
     fi
     return 1
@@ -94,7 +93,7 @@ parse_config() {
 
   config=""
   if [ -f "$1/$CONFIG_FILE_PATH" ]; then
-    config="$(cat "$1/$CONFIG_FILE_PATH")"
+    config="$(sed '/^[[:blank:]]*#/d;s/#.*//' "$1/$CONFIG_FILE_PATH")"
   else
     config="$DEFAULT_CONFIG"
   fi
@@ -106,7 +105,7 @@ parse_config() {
     line="${line%"${line##*[![:space:]]}"}"
 
     # Skip empty lines and comments
-    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+    [[ -z "$line" ]] && continue
 
     # Split on first '=' only
     IFS='=' read -r key value <<< "$line"
@@ -179,7 +178,7 @@ unsymlink_directory() {
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
 
-    if should_ignore "${source_path#*/}" "$IGNORES"; then
+    if should_ignore "${source_path#*/}" "$IGNORES" "$IGNORE"; then
       if [ "$VERBOSE" -ge 2 ]; then
         echo "Ignoring $source_path"
       fi
@@ -236,7 +235,7 @@ symlink_directory() {
     target_path="$TARGET/$rel_path"
 
 
-    if should_ignore "${source_path#*/}" "$IGNORES"; then
+    if should_ignore "${source_path#*/}" "$IGNORES" "$IGNORE"; then
       if [ "$VERBOSE" -ge 2 ]; then
         echo "Ignoring $source_path"
       fi
@@ -284,7 +283,7 @@ unstow() {
     echo "Planning unstow of: $PACKAGE ..."
   fi
 
-  if should_ignore "$DIR/$PACKAGE/" "$IGNORES"; then
+  if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
     echo "Ignoring $DIR/$PACKAGE"
     return 0
   fi
@@ -302,8 +301,6 @@ unstow() {
       unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
 
 
-      #ln -s "$directory" "$targ"
-      
     done
   else
     echo "$SELF: ERROR: The stow directory $DIR does not contain package $PACKAGE"
@@ -331,7 +328,7 @@ stow() {
     echo "Planning stow of: $PACKAGE ..."
   fi
 
-  if should_ignore "$DIR/$PACKAGE/" "$IGNORES"; then
+  if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
     echo "Ignoring $DIR/$PACKAGE"
     return 0
   fi
