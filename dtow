@@ -375,6 +375,11 @@ restow() {
 
 
 # Main logic
+
+if [ $# -le 1 ]; then
+  help
+fi
+
 DIR="./"
 TARGET=""
 IGNORE=""
@@ -441,6 +446,9 @@ while [[ "$1" == -* ]]; do
   --verbose=*)
     VERBOSE="${1#*=}"
     ;;
+  --verbose)
+    (( VERBOSE += 1 ))
+    ;;
   -h|--help)
     help
     exit 0
@@ -458,8 +466,6 @@ done
 
 if [ ! -z "$1" ]; then
   stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
-else
-  help
 fi
 
 
