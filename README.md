@@ -1,6 +1,24 @@
 # DTOW (dotfile stow)
 
-dtow is a symlink manager script, written in bash, that was heavily inspired by (GNU Stow)[https://www.gnu.org/software/stow], with more emphasis on dotfile (config file) managment. dtow was made after I ran into issues using stow to symlink files to root directories, like `/etc`. dtow is designed to be as close to a drop-in replacement for stow, as it was possible, using the same CLI option naming and, most of the time, functionality.
+dtow is a symlink manager script for GNU/Linux and Mac, written in bash, that was heavily inspired by [GNU Stow](https://www.gnu.org/software/stow), with more emphasis on dotfile (config file) managment. dtow was made after I ran into issues while using stow to symlink files to root directories, like `/etc`. dtow was designed to be as close to a drop-in replacement for stow, as it was possible, using the same CLI option naming and, most of the time, functionality.
+
+**THIS PROGRAM COMES WITH NO WARRANTY, USE AT YOUR OWN RISK**
+
+---
+## TL;DR
+
+Syntax:
+    `dtow [OPTION ...] [-D|-S|-R] PACKAGE ... [-D|-S|-R] PACKAGE ...`
+
+Use like GNU Stow with the difference being:
+- everything inside `package/home` will be symlinked/copied to `~/`
+- everything inside `package/root` will be symlinked/copied to `/`
+- everything inside `package/` that is not either of the above will be symlinked/copied to the default target - `~/`
+- if a file cannot be symlinked due to permission problems, dtow will try running the command as the super user, asking for credentials in the process.
+- use `dtow --help` to print the help - **WARNING:** Some of the options listed have not been implemented yet, to check which ones go to the [TODO](#todo) section of this readme.
+- configure dtow with the `.dtow` file
+- configure ignores with the `.dtowignore` file
+- **The project is very much in alpha development, there could and probably will be issues when using it.** It has only been tested in the most basic of situations.
 
 ---
 
@@ -83,4 +101,20 @@ some-ignored-folder/
 some-package/another-ignored-file
 
 some-package/another-ignored-folder/
+```
+
+---
+
+## TODO
+
+This project was created out of necessity, so it may not be the fastest and most efficient.
+
+There is a very high chance, that there could be issues while using dtow, as it is in very early development, however, as I plan to use it myself, I will probably be fixing most of the bugs I find.
+
+The help menu of the script includes some options which have not been implemented yet. That includes:
+```
+--defer=REGEX
+--override=REGEX
+--adopt
+--dotfiles
 ```
