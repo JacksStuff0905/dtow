@@ -458,6 +458,8 @@ done
 
 if [ ! -z "$1" ]; then
   stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+else
+  help
 fi
 
 
