@@ -5,6 +5,24 @@ dtow is a symlink manager script for GNU/Linux and Mac, written in bash, that wa
 **THIS PROGRAM COMES WITH NO WARRANTY, USE AT YOUR OWN RISK**
 
 ---
+
+## Installation
+### Manual
+1. Clone the git repo: `git clone https://github.com/JacksStuff0905/dtow.git`
+2. Enter the repo directory: `cd dtow`
+3. Run the install script: `./install.sh`
+4. Exit the repo directory: `cd ..`
+5. Remove the repo directory: `rm -r dtow`
+
+*Uninstalling*
+1. Clone the git repo (if you haven't already): `git clone https://github.com/JacksStuff0905/dtow.git`
+2. Enter the repo directory: `cd dtow`
+3. Run the uninstall script: `./uninstall.sh`
+4. Exit the repo directory: `cd ..`
+5. Remove the repo directory: `rm -r dtow`
+
+---
+
 ## TL;DR
 
 Syntax:
@@ -74,7 +92,7 @@ parent-directory/
 
 Both of the configuration files (`.dtow`, `.dtowignore`) support comments starting with the character '#'.
 
-***.dtow***
+**.dtow**
 ```
 # This is the dtow configuration file
 
@@ -90,7 +108,7 @@ home=$HOME
 .=$HOME
 ```
 
-***.dtowignore***
+**.dtowignore**
 ```
 # This is the ignore file, use it like the .gitignore file in git
 
