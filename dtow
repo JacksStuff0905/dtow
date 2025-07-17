@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="0.1"
+VERSION="0.1.1"
 ROOT="$(dirname "$0")"
 SELF="$(basename "$0")"
 
@@ -375,7 +375,7 @@ restow() {
 
 
 # Main logic
-if [ $# -le 2 ]; then
+if [ $# -le 0 ]; then
   help
 fi
 
