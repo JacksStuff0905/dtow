@@ -375,8 +375,7 @@ restow() {
 
 
 # Main logic
-
-if [ $# -le 1 ]; then
+if [ $# -le 2 ]; then
   help
 fi
 
