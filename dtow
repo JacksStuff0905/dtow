@@ -284,7 +284,9 @@ unstow() {
   fi
 
   if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
-    echo "Ignoring $DIR/$PACKAGE"
+    if [ "$VERBOSE" -ge 2 ]; then
+      echo "Ignoring $DIR/$PACKAGE"
+    fi
     return 0
   fi
 
@@ -329,7 +331,9 @@ stow() {
   fi
 
   if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
-    echo "Ignoring $DIR/$PACKAGE"
+    if [ "$VERBOSE" -ge 2 ]; then
+      echo "Ignoring $DIR/$PACKAGE"
+    fi
     return 0
   fi
 
