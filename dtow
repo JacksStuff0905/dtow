@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="0.0.1"
+VERSION="0.0.2"
 ROOT="$(dirname "$0")"
 SELF="$(basename "$0")"
 
@@ -51,39 +51,6 @@ help() {
   info
   usage
   options
-}
-
-compile_ignore_regex() {
-  local ignore_file="$1"
-  local regex_var="$2"
-  local patterns=()
-
-  if [[ -f "$ignore_file" ]]; then
-    while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
-
-      # If the pattern looks like a directory, make it match subpaths too
-      if [[ "$line" =~ /$ ]]; then
-        # e.g., "foo/bar/" → "^foo/bar(/|$)"
-        line="^${line%/}(/|$)"
-      fi
-
-      patterns+=("$line")
-    done <<< "$(sed '/^[[:blank:]]*#/d;s/#.*//' "$ignore_file")"
-  fi
-
-  local regex="$(IFS='|'; echo "${patterns[*]}")"
-  eval "$regex_var=\"\$regex\""
-}
-
-should_ignore() {
-    local rel_path="$1"
-    local compiled_regex="$2"
-
-    if ( [[ -n "$compiled_regex" ]] && echo "$rel_path" | grep -qE "$compiled_regex" ) || ( [[ -n "$3" ]] && echo "$rel_path" | grep -qE ".*$3$" ); then
-        return 0  # ignore
-    fi
-    return 1
 }
 
 
@@ -178,7 +145,7 @@ unsymlink_directory() {
     # Compute the corresponding target path
     target_path="$TARGET/$rel_path"
 
-    if should_ignore "${source_path#*/}" "$IGNORES" "$IGNORE"; then
+    if is_ignored "${source_path#*/}" "$IGNORE"; then
       if [ "$VERBOSE" -ge 2 ]; then
         echo "Ignoring $source_path"
       fi
@@ -235,7 +202,7 @@ symlink_directory() {
     target_path="$TARGET/$rel_path"
 
 
-    if should_ignore "${source_path#*/}" "$IGNORES" "$IGNORE"; then
+    if is_ignored "${source_path#*/}" "$IGNORE"; then
       if [ "$VERBOSE" -ge 2 ]; then
         echo "Ignoring $source_path"
       fi
@@ -247,20 +214,53 @@ symlink_directory() {
     fi
 
     if [ "$VERBOSE" -ge 1 ]; then
-      echo "LINK: $source_path => $target_path"
+      echo "LINK: $(readlink -f "$source_path") => $target_path"
     fi
 
     if [ "$SIMULATE" == "0" ]; then
       try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
     
-      try_sudo "ln -s "$source_path" "$target_path"" "" "$VERBOSE"
+      try_sudo "ln -s "$(readlink -f "$source_path")" "$target_path"" "" "$VERBOSE"
     fi
   done
 }
 
-IGNORES=""
+IGNORES=()
 load_ignore() {
-  compile_ignore_regex "$1/$IGNORE_FILE_PATH" IGNORES
+  while IFS= read -r line; do
+    line="${line%%#*}"     # remove comments
+    line="${line%"${line##*[![:space:]]}"}"  # trim trailing
+    [[ -z "$line" ]] && continue
+
+    # Append '**' if pattern ends with '/'
+    if [[ "$line" == */ ]]; then #&& "$line" != */** ]]; then
+      line="${line}**"
+    fi
+
+    # If not anchored, prepend '**/'
+    if [[ "$line" != /* ]]; then
+      line="**/$line"
+    else
+      line="${line#/}"
+    fi
+
+    echo "  >>> pattern1: $line"
+    IGNORES+=("$line")
+  done < "$IGNORE_FILE_PATH"
+}
+
+is_ignored() {
+  local path="$1"
+  local temporary_ignore="$2"
+  echo "is_ignored: path: $path temporary_ignore: $temporary_ignore"
+  for pat in "${IGNORES[@]}"; do
+    echo "    pattern: $pat"
+    [[ "$path" == $pat ]] && return 0
+  done
+  if [[ -n "$temporary_ignore" ]] && echo "$path" | grep -qE "$temporary_ignore"; then
+    return 0
+  fi
+  return 1
 }
 
 unstow() {
@@ -283,7 +283,7 @@ unstow() {
     echo "Planning unstow of: $PACKAGE ..."
   fi
 
-  if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
+  if is_ignored "$DIR/$PACKAGE" "$IGNORE"; then
     if [ "$VERBOSE" -ge 2 ]; then
       echo "Ignoring $DIR/$PACKAGE"
     fi
@@ -330,7 +330,7 @@ stow() {
     echo "Planning stow of: $PACKAGE ..."
   fi
 
-  if should_ignore "$DIR/$PACKAGE/" "$IGNORES" "$IGNORE"; then
+  if is_ignored "$DIR/$PACKAGE" "$IGNORE"; then
     if [ "$VERBOSE" -ge 2 ]; then
       echo "Ignoring $DIR/$PACKAGE"
     fi
