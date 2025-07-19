@@ -244,7 +244,6 @@ load_ignore() {
       line="${line#/}"
     fi
 
-    echo "  >>> pattern1: $line"
     IGNORES+=("$line")
   done < "$IGNORE_FILE_PATH"
 }
@@ -252,9 +251,7 @@ load_ignore() {
 is_ignored() {
   local path="$1"
   local temporary_ignore="$2"
-  echo "is_ignored: path: $path temporary_ignore: $temporary_ignore"
   for pat in "${IGNORES[@]}"; do
-    echo "    pattern: $pat"
     [[ "$path" == $pat ]] && return 0
   done
   if [[ -n "$temporary_ignore" ]] && echo "$path" | grep -qE "$temporary_ignore"; then
