@@ -219,7 +219,7 @@ symlink_directory() {
 
     if [ "$SIMULATE" == "0" ]; then
       try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
-    
+      try_sudo "rm $target_path" "" "$VERBOSE"
       try_sudo "ln -s "$(readlink -f "$source_path")" "$target_path"" "" "$VERBOSE"
     fi
   done
@@ -227,6 +227,7 @@ symlink_directory() {
 
 IGNORES=()
 load_ignore() {
+  stow_dir="$1"
   while IFS= read -r line; do
     line="${line%%#*}"     # remove comments
     line="${line%"${line##*[![:space:]]}"}"  # trim trailing
@@ -245,7 +246,7 @@ load_ignore() {
     fi
 
     IGNORES+=("$line")
-  done < "$IGNORE_FILE_PATH"
+  done < "$stow_dir/$IGNORE_FILE_PATH"
 }
 
 is_ignored() {
@@ -258,6 +259,14 @@ is_ignored() {
     return 0
   fi
   return 1
+}
+
+
+adopt() {
+  local SOURCE="$1"
+  local TARGET="$2"
+
+ 
 }
 
 unstow() {
@@ -296,6 +305,33 @@ unstow() {
 
       directory="$DIR/$PACKAGE/$directory"
       targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
+
+      if [[ ! -d "$directory" ]]; then
+        # Compute the corresponding target path
+        target_path="$targ"
+
+        if is_ignored "${directory#*/}" "$IGNORE"; then
+          if [ "$VERBOSE" -ge 2 ]; then
+            echo "Ignoring $directory"
+          fi
+          continue
+        fi
+
+        # If it's a symlink and it points to this package, remove it
+        if [[ -L "$target_path" ]]; then
+          resolved_target=$(readlink -f "$(readlink "$target_path")")
+          resolved_source=$(readlink -f "$directory" 2>/dev/null)
+
+          # Symlink still points to the expected source in package?
+          if [[ "$resolved_target" == "$resolved_source" ]]; then
+            if [ "$SIMULATE" == "0" ]; then
+              try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE"
+            fi
+          fi
+        fi
+
+        continue
+      fi
 
       unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
 
@@ -342,10 +378,38 @@ stow() {
         continue
       fi
 
-      
-
       directory="$DIR/$PACKAGE/$directory"
       targ="$(parse_config $DIR $(basename "$directory") "$TARGET")"
+
+      if [[ ! -d "$directory" ]]; then
+        # Compute the corresponding target path
+        target_path="$targ"
+
+
+        if is_ignored "${directory#*/}" "$IGNORE"; then
+          if [ "$VERBOSE" -ge 2 ]; then
+            echo "Ignoring $directory"
+          fi
+          continue
+        fi
+
+        if [ "$VERBOSE" -ge 2 ]; then
+          echo "Creating intermediate directories: $(dirname "$target_path")"
+        fi
+
+        if [ "$VERBOSE" -ge 1 ]; then
+          echo "LINK: $(readlink -f "$directory") => $target_path"
+        fi
+
+        if [ "$SIMULATE" == "0" ]; then
+          try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
+          try_sudo "rm $target_path" "" "$VERBOSE"
+          try_sudo "ln -s "$(readlink -f "$directory")" "$target_path"" "" "$VERBOSE"
+        fi
+
+        continue
+      fi
+      
 
       symlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
     done
