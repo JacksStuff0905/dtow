@@ -133,6 +133,5 @@ The help menu of the script includes some options which have not been implemente
 ```
 --defer=REGEX
 --override=REGEX
---adopt
 --dotfiles
 ```
