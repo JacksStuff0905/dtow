@@ -35,6 +35,7 @@ options() {
   echo -e "\t-D, --delete\t\tUnstow the package names that follow this option"
   echo -e "\t-R, --restow\t\tRestow (like $SELF -D followed by $0 -S)"
   echo
+  echo -e "\t--no-sudo\t\tDon't symlink files which are not owned by the\n\t\t\t\tcurrent user, aka don't use sudo"
   echo -e "\t--ignore=REGEX\t\tIgnore files ending in this regex"
   echo -e "\t--defer=REGEX\t\tDon't stow files beginning with this regex\n\t\t\t\tif the file is already stowed to another package"
   echo -e "\t--override=REGEX\tForce stowing files beginning with this regex\n\t\t\t\tif the file is already stowed to another package"
@@ -100,11 +101,18 @@ parse_config() {
 
 try_sudo() {
   local VERBOSE="$3"
+  local CAN_SUDO="$4"
   result="$($1 2>&1)"
   status=$?
 
   if [[ $status -eq 1 ]]; then
     if [[ "$result" == *"Permission denied"* ]]; then
+      if [[ "$CAN_SUDO" != "1" ]]; then
+        if [ "$VERBOSE" -ge 3 ]; then
+          echo "Skipping $1 because permission was denied and --no-sudo option is enabled"
+        fi
+        return
+      fi
       sudo -E $1
       if [[ $? -eq 0 ]]; then
         if [ "$VERBOSE" -ge 1 ]; then
@@ -134,6 +142,7 @@ unsymlink_directory() {
   local COMPAT="$8"
   local SIMULATE="$9"
   local VERBOSE="${10}"
+  local CAN_SUDO="${11}"
 
   if [[ ! -d "$TARGET" ]]; then
     return 1
@@ -154,13 +163,13 @@ unsymlink_directory() {
 
     # If it's a symlink and it points to this package, remove it
     if [[ -L "$target_path" ]]; then
-      resolved_target=$(readlink -f "$(readlink "$target_path")")
-      resolved_source=$(readlink -f "$source_path" 2>/dev/null)
+      resolved_target="$(readlink -f "$(readlink "$target_path")")"
+      resolved_source="$(readlink -f "$source_path" 2>/dev/null)"
 
       # Symlink still points to the expected source in package?
       if [[ "$resolved_target" == "$resolved_source" ]]; then
         if [ "$SIMULATE" == "0" ]; then
-          try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE"
+          try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE" "$CAN_SUDO"
         fi
       fi
     fi
@@ -176,7 +185,7 @@ unsymlink_directory() {
       fi
       
       if [ "$SIMULATE" == "0" ]; then
-        try_sudo "rmdir "$target_subdir"" "" "$VERBOSE"
+        try_sudo "rmdir "$target_subdir"" "" "$VERBOSE" "$CAN_SUDO"
       fi
     fi
   done
@@ -194,6 +203,7 @@ symlink_directory() {
   local COMPAT="$8"
   local SIMULATE="$9"
   local VERBOSE="${10}"
+  local CAN_SUDO="${11}"
 
   find "$SOURCE" -type f -o -type l | while read -r source_path; do
     # Get relative path from the stow package dir
@@ -218,9 +228,9 @@ symlink_directory() {
     fi
 
     if [ "$SIMULATE" == "0" ]; then
-      try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
-      try_sudo "rm $target_path" "" "$VERBOSE"
-      try_sudo "ln -s "$(readlink -f "$source_path")" "$target_path"" "" "$VERBOSE"
+      try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE" "$CAN_SUDO"
+      try_sudo "rm $target_path" "" "$VERBOSE" "$CAN_SUDO"
+      try_sudo "ln -s "$(readlink -f "$source_path")" "$target_path"" "" "$VERBOSE" "$CAN_SUDO"
     fi
   done
 }
@@ -265,8 +275,48 @@ is_ignored() {
 adopt() {
   local SOURCE="$1"
   local TARGET="$2"
+  local IGNORE="$3"
+  local VERBOSE="$4"
+  local CAN_SUDO="$5"
 
- 
+  find "$SOURCE" -type f | while read -r source_path; do
+    if [[ -L "$source_path" ]]; then
+      continue
+    fi
+
+    source_path="$(readlink -f "$source_path")"
+    # Get relative path from the stow package dir
+    rel_path="${source_path#$SOURCE/}"
+    # Compute the corresponding target path
+    target_path="$(readlink -f "$TARGET")/$rel_path"
+
+
+    for directory in $(ls -a "$(readlink -f "$TARGET")"); do
+      if [[ "$directory" == "." || "$directory" == ".." ]]; then
+        continue
+      fi
+
+      directory="$(readlink -f "$TARGET")/$directory"
+
+      if [[ "$target_path" == "$directory/"* ]]; then
+        if is_ignored "$target_path" "$IGNORE"; then
+          if [[ "$VERBOSE" -ge 2 ]]; then
+            echo "Ignoring adoption of $source_path"
+          fi
+          continue
+        fi
+
+        if [[ "$VERBOSE" -ge 2 ]]; then
+          echo "Adopting $source_path to $target_path"
+        fi
+
+        try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE" "$CAN_SUDO"
+        try_sudo "mv "$source_path" "$target_path"" "" "$VERBOSE" "$CAN_SUDO"
+      fi
+    done
+
+    #if [[ ""
+  done 
 }
 
 unstow() {
@@ -281,6 +331,7 @@ unstow() {
   local COMPAT="$9"
   local SIMULATE="${10}"
   local VERBOSE="${11}"
+  local CAN_SUDO="${12}"
 
   load_ignore "$DIR"
 
@@ -325,7 +376,7 @@ unstow() {
           # Symlink still points to the expected source in package?
           if [[ "$resolved_target" == "$resolved_source" ]]; then
             if [ "$SIMULATE" == "0" ]; then
-              try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE"
+              try_sudo "rm "$target_path"" "UNLINK: $target_path" "$VERBOSE" "$CAN_SUDO"
             fi
           fi
         fi
@@ -333,7 +384,7 @@ unstow() {
         continue
       fi
 
-      unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+      unsymlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
 
 
     done
@@ -355,6 +406,7 @@ stow() {
   local COMPAT="$9"
   local SIMULATE="${10}"
   local VERBOSE="${11}"
+  local CAN_SUDO="${12}"
 
   load_ignore "$DIR"
 
@@ -385,7 +437,6 @@ stow() {
         # Compute the corresponding target path
         target_path="$targ"
 
-
         if is_ignored "${directory#*/}" "$IGNORE"; then
           if [ "$VERBOSE" -ge 2 ]; then
             echo "Ignoring $directory"
@@ -402,16 +453,21 @@ stow() {
         fi
 
         if [ "$SIMULATE" == "0" ]; then
-          try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE"
-          try_sudo "rm $target_path" "" "$VERBOSE"
-          try_sudo "ln -s "$(readlink -f "$directory")" "$target_path"" "" "$VERBOSE"
+          try_sudo "mkdir -p "$(dirname "$target_path")"" "" "$VERBOSE" "$CAN_SUDO"
+          try_sudo "rm $target_path" "" "$VERBOSE" "$CAN_SUDO"
+          try_sudo "ln -s "$(readlink -f "$directory")" "$target_path"" "" "$VERBOSE" "$CAN_SUDO"
         fi
 
         continue
       fi
-      
 
-      symlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+
+
+      if [[ "$ADOPT" == "1" ]]; then
+        adopt "$targ" "$directory" "$IGNORE" "$VERBOSE" "$CAN_SUDO"
+      fi
+
+      symlink_directory "$directory" "$targ" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
     done
   else
     echo "$SELF: ERROR: The stow directory $DIR does not contain package $PACKAGE"
@@ -430,11 +486,12 @@ restow() {
   local COMPAT="$9"
   local SIMULATE="${10}"
   local VERBOSE="${11}"
+  local CAN_SUDO="${12}"
 
 
-  unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+  unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
 
-  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
 }
 
 
@@ -454,6 +511,7 @@ DOTFILES=0
 COMPAT=0
 SIMULATE=0
 VERBOSE=0
+CAN_SUDO=1
 
 while [[ "$1" == -* ]]; do
   case "$1" in
@@ -473,15 +531,18 @@ while [[ "$1" == -* ]]; do
     ;;
   -S|--stow)
     shift
-    stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
     ;;
   -D|--delete)
     shift
-    unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    unstow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
     ;;
   -R|--restow)
     shift
-    restow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+    restow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
+    ;;
+  --no-sudo)
+    CAN_SUDO=0
     ;;
   --ignore=*)
     IGNORE="${1#*=}"
@@ -529,7 +590,7 @@ while [[ "$1" == -* ]]; do
 done
 
 if [ ! -z "$1" ]; then
-  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE"
+  stow "$1" "$DIR" "$TARGET" "$IGNORE" "$DEFER" "$OVERRIDE" "$ADOPT" "$DOTFILES" "$COMPAT" "$SIMULATE" "$VERBOSE" "$CAN_SUDO"
 fi
 
 
